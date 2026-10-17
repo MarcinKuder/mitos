@@ -31,6 +31,8 @@
   ")"
 ] @outdent
 
+"}" @extend.prevent-once
+
 ; Multi-line construct support
 [
   (function_definition)
