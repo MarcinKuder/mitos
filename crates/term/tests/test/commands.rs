@@ -875,6 +875,46 @@ async fn test_insert_with_indent() -> anyhow::Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn test_open_below_last_line_of_extended_body() -> anyhow::Result<()> {
+    // A new line past the end of an off-side body is claimed by its `@extend`
+    // scope, so it keeps the body's indent
+    test((
+        indoc! { "
+            def foo():
+                #[x|]# = 1
+            "
+        },
+        ":lang python<ret>o",
+        indoc! { "
+            def foo():
+                x = 1
+                #[\n|]#
+            "
+        },
+    ))
+    .await?;
+
+    // ...unless `@extend.prevent-once` stops the extension
+    test((
+        indoc! { "
+            def foo():
+                #[p|]#ass
+            "
+        },
+        ":lang python<ret>o",
+        indoc! { "
+            def foo():
+                pass
+            #[\n|]#
+            "
+        },
+    ))
+    .await?;
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn test_join_selections() -> anyhow::Result<()> {
     // normal join
     test((

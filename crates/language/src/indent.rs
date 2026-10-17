@@ -464,7 +464,7 @@ fn extend_nodes<'a>(
     line: usize,
     tab_width: usize,
     indent_width: usize,
-) {
+) -> bool {
     let mut stop_extend = false;
 
     while deepest_preceding != *node {
@@ -511,15 +511,16 @@ fn extend_nodes<'a>(
             stop_extend = false;
         } else if extend_node && !stop_extend {
             *node = deepest_preceding.clone();
-            break;
+            return true;
         }
         // If the tree contains a syntax error, `deepest_preceding` may not
         // have a parent despite being a descendant of `node`.
         deepest_preceding = match deepest_preceding.parent() {
             Some(parent) => parent,
-            None => return,
+            None => return false,
         }
     }
+    false
 }
 
 /// When a newline is typed after a header (`while (c)`, `if x:`), the body it
@@ -592,6 +593,7 @@ fn init_indent_query<'a, 'b>(
     Node<'a>,
     HashMap<usize, Vec<IndentCapture<'b>>>,
     Vec<std::ops::Range<u32>>,
+    bool,
 )> {
     // The innermost tree-sitter node which is considered for the indent
     // computation. It may change if some preceding node is extended
@@ -653,10 +655,11 @@ fn init_indent_query<'a, 'b>(
         .is_some();
 
     // Check for extend captures, potentially changing the node that the indent calculation starts with
+    let mut extended = false;
     if let Some(deepest_preceding) = deepest_preceding
         && !descended
     {
-        extend_nodes(
+        extended = extend_nodes(
             &mut node,
             deepest_preceding,
             &extend_captures,
@@ -666,7 +669,7 @@ fn init_indent_query<'a, 'b>(
             indent_width,
         );
     }
-    Some((node, query_result.indent_captures, opaque_ranges))
+    Some((node, query_result.indent_captures, opaque_ranges, extended))
 }
 
 /// Use the syntax tree to determine the indentation for a given position.
@@ -844,7 +847,7 @@ fn containment_accounting<'a>(
     // Reuse the standard setup: this applies @extend repositioning / body-descent
     // and returns the per-node capture map (all ancestors of the cursor intersect
     // the query range, so their captures are present).
-    let (start_node, captures, opaque_ranges) = init_indent_query(
+    let (start_node, captures, opaque_ranges, extended) = init_indent_query(
         query,
         root,
         text,
@@ -905,6 +908,10 @@ fn containment_accounting<'a>(
 
             let node_start = get_node_start_line(text, &node, new_line_byte_pos);
             let end = get_node_end_line(text, &node, new_line_byte_pos);
+            // An `@extend`ed start node (an off-side body such as python's
+            // `def` whose last line precedes the cursor) claims the target line
+            // past its end, and so does every ancestor enclosing it.
+            let end = if extended { end.max(target_line) } else { end };
             // `scope "header"` (set by the query on a brace-less body rule such as
             // `(if_statement consequence: (_) @indent (#set! scope "header"))`)
             // opens the scope at the *header* — the captured node's parent — so the
